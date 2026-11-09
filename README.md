@@ -1,5 +1,7 @@
 # SAT-based metro routing
 
+**Visualizer:** [Open the browser visualizer](https://sagardeepak671.github.io/SAT-Based-Metro-Network-Routing/)
+
 Routes K metro lines through an N x M grid with a SAT solver. Each line is a
 simple orthogonal path between its two given cells, lines never share a cell,
 each line changes direction at most J times, and in scenario 2 every popular

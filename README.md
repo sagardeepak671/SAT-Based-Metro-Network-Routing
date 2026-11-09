@@ -1,339 +1,195 @@
-# METRO — SAT-Based Metro Map Planner
+# SAT-based metro routing
 
-Plan a subway network on a city grid: given a set of metro lines with fixed start and end stations,
-a cap on how many turns each line may make, and a list of popular destinations that must be served,
-METRO decides whether such a network exists — and if it does, draws it.
+Routes K metro lines through an N x M grid with a SAT solver. Each line is a
+simple orthogonal path between its two given cells, lines never share a cell,
+each line changes direction at most J times, and in scenario 2 every popular
+cell must lie on some line. Any J >= 0 is supported.
 
-It does this by **reducing the routing problem to Boolean satisfiability**, handing the CNF to
-[MiniSat](http://minisat.se/), and decoding the satisfying assignment back into concrete metro
-routes. No search heuristics, no hand-written pathfinder: the constraints *are* the algorithm.
+The pipeline is **encode -> solve -> decode -> verify**, with a test-case
+generator, a regression driver and a browser view. File formats and rules are
+in [SPEC.md](SPEC.md). (The source originally described itself as a COL226
+assignment project; this does not establish authorship or a license.)
 
-> Built for **COL226 / Assignment 3** at IIT Delhi. The encoder and decoder are ~1,600 lines of
-> optimised C++11, with a Python test-case generator, format checker, and regression harness.
+## 1. Requirements
 
----
+| Need | Used by |
+|------|---------|
+| C++11 compiler, Make, Bash | encoder, decoder |
+| Python 3 (standard library only) | generator, tester, verifier, visualizer |
+| A SAT solver: a `minisat` binary on PATH, **or** `pip install python-sat` | solving |
 
-## Table of Contents
+`solve_cnf.py` drives python-sat's bundled MiniSat 2.2 core with the same
+command line, result-file format and exit statuses as the `minisat` binary
+(10 = SAT, 20 = UNSAT). `TESTER.py` uses `minisat` when it is on PATH and
+falls back to `solve_cnf.py`. On a managed system Python install python-sat
+inside a venv or with `pip install --user python-sat`.
 
-- [How It Works](#how-it-works)
-- [Environment Setup](#environment-setup)
-- [Build](#build)
-- [Quick Start](#quick-start)
-- [Running Step by Step](#running-step-by-step)
-- [Input Format](#input-format)
-- [Output Format](#output-format)
-- [The SAT Encoding](#the-sat-encoding)
-- [Generating Test Cases](#generating-test-cases)
-- [Testing](#testing)
-- [Project Structure](#project-structure)
-- [Troubleshooting](#troubleshooting)
-- [Contributing](#contributing)
-
----
-
-## How It Works
-
-```
-  input.city ──▶ ./encoder ──▶ input.satinput ──▶ minisat ──▶ input.satoutput
-                                                                    │
-                                                                    ▼
-                          input.metromap ◀── ./decoder ◀────────────┘
-                                  │
-                                  ▼
-                          format_checker.py  (validates the plan)
-```
-
-Every grid cell gets one Boolean variable per metro line: `var[x][y][k]` is true iff cell `(x, y)`
-is part of line `k`. The encoder emits clauses that make *any* satisfying assignment a legal metro
-map; the decoder walks the true variables to recover each line's route in order.
-
-![Example metro map solution](Example.png)
-
----
-
-## Environment Setup
-
-| Requirement | Purpose |
-|---|---|
-| g++ (C++11) | Compiles `encoder.cpp` and `decoder.cpp` |
-| Python 3.7+ | Test-case generator, format checker, test runner |
-| **MiniSat** | The SAT solver — must be on your `PATH` as `minisat` |
-
-<details>
-<summary><b>Linux (Debian / Ubuntu)</b></summary>
+## 2. Quick start
 
 ```bash
-sudo apt update
-sudo apt install -y build-essential python3 minisat
+./compile.sh                 # builds ./encoder and ./decoder
+pip install python-sat       # only if no minisat binary is available
+make test                    # generates tests/ and runs the whole suite (81 cases, ~1 min)
 ```
-</details>
 
-<details>
-<summary><b>macOS</b></summary>
+## 3. Full flow for one instance
+
+Every stage works on `<basename>` and reads/writes `<basename>.<ext>`:
+
+| Stage | Command | Reads | Writes |
+|-------|---------|-------|--------|
+| encode | `./run1.sh C` | `C.city` | `C.satinput` (DIMACS CNF) |
+| solve | `python3 solve_cnf.py C.satinput C.satoutput` (or `minisat C.satinput C.satoutput`) | `C.satinput` | `C.satoutput` |
+| decode | `./run2.sh C` | `C.city`, `C.satoutput` | `C.metromap` (moves per line, or `0`) |
+| verify | `python3 format_checker.py C` | `C.city`, `C.metromap` | result line on stdout |
+| view | `python3 visualize.py C --open` | `C.city`, `C.metromap` | `C.html`, opened in the browser |
+
+Example (a scenario-1 instance whose first line needs six turns):
 
 ```bash
-xcode-select --install
-brew install minisat python3
+C=tests/s1_j6_corridor
+./run1.sh $C
+python3 solve_cnf.py $C.satinput $C.satoutput
+./run2.sh $C && cat $C.metromap
+python3 format_checker.py $C
+python3 visualize.py $C --open
 ```
 
-`compile.sh` uses `-march=native`. On Apple Silicon, if the compiler rejects it, build manually:
+Other build commands: `make run` encodes the bundled `input.city`;
+`CXX=clang++ ./compile.sh` chooses a compiler; `DEBUG=1 ./compile.sh` makes a
+sanitizer build; `CLEAN=1 ./compile.sh` rebuilds from scratch; `make clean`
+removes binaries and generated outputs.
+
+## 4. Files
+
+| File | Purpose |
+|------|---------|
+| `encoder.cpp`, `run1.sh` | CNF encoder for any J (see section 5). `./encoder C --legacy` selects the original path-enumeration encoding (J <= 3), kept for cross-checking only. |
+| `decoder.cpp`, `run2.sh` | `.city` + `.satoutput` -> `.metromap` (section 6). |
+| `solve_cnf.py` | `minisat`-compatible stand-in using python-sat. |
+| `format_checker.py` | Standalone verifier of a `.metromap` against its `.city` (section 7). |
+| `visualize.py` | Self-contained HTML/SVG view of a `.city` + `.metromap` pair (section 8). |
+| `testcase_gen.py` | Reproducible test-case generator with evidence for every expectation (section 9). |
+| `TESTER.py` | Regression driver: encode -> solve -> compare -> decode -> verify. |
+| `metro_common.py` | Shared helpers: `.city` parsing, route checking, ASCII rendering, small exhaustive reference solver. |
+| `input.city` | One small example. |
+| `SPEC.md` | Formats, coordinate conventions and routing rules. |
+
+## 5. Encoding
+
+Occupancy variables follow the formula in SPEC.md: cell (x,y) coloured by
+line k. At most one colour per cell; in scenario 2 each popular cell needs a
+colour.
+
+Routes are encoded as a **segment automaton**. For every line k, cell c,
+direction d and segment index t in 0..J there is an edge variable "line k
+leaves c in direction d on segment t (after t turns)". All constraints are
+local:
+
+- the start emits exactly one edge, on segment 0, and receives none;
+- the end receives exactly one edge and emits none;
+- any other cell is coloured k iff one edge of k arrives, and then exactly one
+  edge leaves (in-degree and out-degree at most 1);
+- an edge leaving on (d,t) must be fed by an arrival on (d,t) (going
+  straight) or on a perpendicular direction with t-1 (a turn), and vice
+  versa; U-turns are impossible.
+
+Degree <= 1 rules out branching, and a closed loop is impossible because it
+has >= 4 turns while the segment index cannot grow around the loop and return
+to its first value. So the cells coloured k are exactly one simple route with
+<= J turns, in both scenarios.
+
+Size: about 4·N·M·K·(J+1) variables and 40·N·M·K·(J+1) short clauses --
+linear in J and in the grid, independent of the number of paths. Measured:
+25x25, K=8, J=12 gives 2.5M clauses in 2 s; MiniSat solves planted instances
+of that size in about a minute. Instances that are unsolvable for topological
+reasons (a line that must cross another) are much harder for the solver:
+12x12 with J=6 took ~90 s and 15x15 did not finish in 5 minutes.
+
+History: the legacy enumeration encoding had a scenario-2 defect (a popular
+cell on no candidate path had an unconstrained colour variable, so impossible
+instances came out SAT). It is fixed there as well, and the cases that
+exposed it stay in the suite (e.g. `s2_j0_popular_off_line`).
+
+## 6. Decoding
+
+The decoder reads the `.city` and the MiniSat-style `.satoutput`, rebuilds
+each cell's colour from the occupancy variables, and recovers per line a
+simple route with at most J turns inside that line's coloured cells,
+preferring the route that covers most popular cells and then most cells (it
+does not rely on the coloured cells being exactly one path).
+
+| Exit | Meaning |
+|------|---------|
+| 0 | wrote `.metromap`: K move rows, or the single `0` row on UNSAT |
+| 3 | routes written, but a popular cell is on no route (diagnostic on stderr) |
+| 1 | solver output missing / malformed / incomplete, or no valid route exists in the coloured cells; nothing written, no route invented |
+
+Solver failures are never reported as UNSAT.
+
+## 7. Verifying
 
 ```bash
-g++ -std=c++11 -O3 encoder.cpp -o encoder
-g++ -std=c++11 -O3 decoder.cpp -o decoder
+python3 format_checker.py tests/s2_j3_three_lines             # C.city + C.metromap
+python3 format_checker.py --city a.city --metromap b.metromap
 ```
-</details>
 
-<details>
-<summary><b>Windows</b></summary>
+Reads only the two files. Checks the row count, move alphabet, grid bounds,
+endpoints, simplicity, cell sharing between lines, the turn limit and
+(scenario 2) popular-cell coverage, and lists every violation with its
+`.metromap` line number.
 
-Use **WSL2** and follow the Linux instructions. MiniSat is not readily available for native Windows.
-</details>
+| Exit | Result |
+|------|--------|
+| 0 | `VALID` |
+| 1 | `INVALID` (violations listed) |
+| 2 | `MALFORMED` (missing or unparsable file) |
+| 3 | `NO_WITNESS`: the single `0` row; nothing to check, and not evidence that the instance is unsolvable |
 
-Verify everything is in place:
+## 8. Viewing routes
 
 ```bash
-g++ --version && python3 --version && minisat --help | head -1
+python3 visualize.py tests/s2_j3_three_lines --open   # writes tests/s2_j3_three_lines.html and opens it
+python3 visualize.py --index tests --open             # one page per case + tests/index.html
 ```
 
-No Python packages are required — the scripts use only the standard library.
+The page shows the grid with one colour per metro line, S/E discs at the
+endpoints, a star on every popular cell (red dashed ring when no route covers
+it), a red box on any cell used by two lines, the decoded move string and
+turn count per line, and the verifier's result with its messages. Invalid
+routes are drawn as far as they go, so a bad answer can be inspected
+visually. Only the `.city` and `.metromap` files are read.
 
----
-
-## Build
+## 9. Testing
 
 ```bash
-git clone https://github.com/<your-username>/METRO.git
-cd METRO
-
-./compile.sh              # release build: -O3 -march=native, binaries stripped
+python3 testcase_gen.py --out tests   # tests/*.city, *.witness.metromap, manifest.json, CASES.txt
+python3 TESTER.py --tests tests       # -v prints verifier/decoder details for passing cases too
 ```
 
-| Command | Effect |
-|---|---|
-| `./compile.sh` | Release build (`-O3 -march=native -funroll-loops`) |
-| `DEBUG=1 ./compile.sh` | Debug build with ASan + UBSan and symbols |
-| `CLEAN=1 ./compile.sh` | Remove old binaries first |
-| `make clean` | Delete binaries and intermediate `.satinput` / `.satoutput` / `.metromap` files |
+81 cases: hand-written small ones (both scenarios, rectangular and one-row
+grids, several lines, popular cells, J = 0..9, solvable and impossible
+variants) and seeded random ones (planted solutions, crossing / pigeonhole /
+unreachable-popular-cell UNSAT constructions, random instances decided by
+the exhaustive solver), with J up to 10. `tests/CASES.txt` explains every
+case: instance, expected verdict, reason, evidence (witness checked by
+`metro_common.check_solution` and/or an exhaustive check) and a picture.
+Generation is deterministic for a given `--seed` (default 20240601); the
+hand-written cases do not depend on it.
 
----
+TESTER outcomes: `PASS`, `MISMATCH` (wrong verdict), `ENCODE_ERROR`,
+`SOLVER_ERROR` (never counted as UNSAT), `DECODE_ERROR`, `VERIFY_FAIL`,
+`SKIPPED` (cases flagged `future` in the manifest -- none at present).
 
-## Quick Start
+## 10. Limitations
 
-Solve the bundled `input.city`:
-
-```bash
-make run
-```
-
-That runs the whole pipeline — compile → encode → solve → decode → validate.
-
-Generate a fresh random instance and solve it:
-
-```bash
-make runn        # 40×40 grid, 30 lines, max 3 turns, guaranteed solvable
-```
-
----
-
-## Running Step by Step
-
-Useful when you want to inspect the CNF or reuse a solver run. All three stages share a basename.
-
-```bash
-./run1.sh input                          # input.city    -> input.satinput
-minisat input.satinput input.satoutput   # solve
-./run2.sh input                          # input.satoutput -> input.metromap
-python3 format_checker.py input          # validate the result against the input
-```
-
-`./encoder <basename>` and `./decoder <basename>` can also be called directly; with no argument
-they default to `input`.
-
-> MiniSat exits with a non-zero status on UNSAT — that is expected, not a failure. The `Makefile`
-> prefixes the call with `-` for exactly this reason.
-
----
-
-## Input Format
-
-A `.city` file:
-
-```
-<scenario>
-<N> <M> <K> <J> [<P>]
-<x1> <y1> <x2> <y2>        ← line 1: start and end
-<x1> <y1> <x2> <y2>        ← line 2
-...                        ← K lines total
-<px> <py> <px> <py> ...    ← P popular cells (scenario 2 only)
-```
-
-| Field | Meaning |
-|---|---|
-| `scenario` | `1` = routing only · `2` = routing **plus** popular-cell coverage |
-| `N`, `M` | Grid dimensions — the first value is the width (columns), the second the height (rows) |
-| `K` | Number of metro lines |
-| `J` | Maximum turns allowed per line |
-| `P` | Number of popular cells (scenario 2 only) |
-
-Example — a 40×40 city, 15 lines, at most 3 turns each, 3 popular destinations:
-
-```
-2
-40 40 15 3 3
-15 23 12 31
-29 2 1 1
-10 21 37 14
-...
-9 23 20 24 2 4
-```
-
----
-
-## Output Format
-
-A `.metromap` file. First line is `1` (satisfiable) or `0` (no such network exists). On success,
-each following line lists the cells of one metro line **in path order**:
-
-```
-1
-15 23 15 24 15 25 ... 12 31
-29 2 28 2 27 2 ... 1 1
-...
-```
-
----
-
-## The SAT Encoding
-
-Variables: `N × M × K` cell-colour variables, plus auxiliary variables introduced by the
-at-most-one encoding and path selectors.
-
-| Constraint | Guarantees |
-|---|---|
-| **G0 — exclusivity** | Each cell belongs to at most one line. Encoded with a *sequential* at-most-one (linear clauses, `O(K)` auxiliaries) rather than pairwise `O(K²)` |
-| **G1 — path selection** | For each line, at least one of the enumerated ≤ J-turn paths from start to end is fully coloured. `PATH_GENERATOR` enumerates candidate routes; each gets a selector variable |
-| **G2 — connectivity** | Any coloured cell that is not an endpoint must have a same-coloured neighbour — no orphan cells |
-| **G3 — continuity** | If `(x, y)` and `(x, y+2)` share a colour, so must `(x, y+1)` (and the vertical analogue) — no gaps |
-| **Coverage** *(scenario 2)* | Every popular cell is coloured by at least one line |
-
-### Performance notes
-
-The encoder produces millions of clauses on large grids, so it is written for throughput:
-
-- Clauses are accumulated in a **10,000-clause buffer** and flushed through a `stringstream`,
-  avoiding per-clause `ofstream` overhead
-- Duplicate literals in long clauses are removed via a `set` before writing
-- The CNF header is patched in at close time, once the true variable and clause counts are known
-- `var_map[x][y][k]` is a preallocated 3-D table — no hashing on the hot path
-
----
-
-## Generating Test Cases
-
-```bash
-python3 testcase_gen.py --N 20 --M 20 --K 5 --J 4 --mode constructive --count 1 --prefix mytest
-```
-
-| Flag | Meaning |
-|---|---|
-| `--N`, `--M` | Grid width (columns) and height (rows) — both required |
-| `--K` | Number of metro lines |
-| `--J` | Maximum turns per line |
-| `--P` | Number of popular cells (scenario 2) |
-| `--mode` | `constructive` (guaranteed SAT) · `random` (default, unknown) · `unsat` (guaranteed UNSAT) |
-| `--count` | How many instances to emit |
-| `--seed` | Random seed, for reproducible instances |
-| `--outdir` | Output directory |
-| `--prefix` | Output filename prefix (`<prefix>_000.city`, …) |
-
----
-
-## Testing
-
-A curated suite lives in `testcases/solvable/` and `testcases/unsolvable/`, covering corridors,
-chokepoints, gauntlets, and scenario-2 coverage cases.
-
-```bash
-python3 TESTER.py testcases/solvable          # run every case in a directory
-python3 TESTER.py testcases/solvable corridor_j3_000   # run a single case
-```
-
-`TESTER.py` copies each case into the working directory, drives
-`run1.sh → minisat → run2.sh → format_checker.py`, cleans up intermediates, and prints a pass/fail
-summary with timings.
-
-Validate a single result by hand:
-
-```bash
-python3 format_checker.py input
-```
-
-The checker re-reads the `.city` file and independently verifies that every route is contiguous,
-connects the right endpoints, respects the turn budget, never overlaps another line, and (in
-scenario 2) covers all popular cells.
-
----
-
-## Project Structure
-
-```
-.
-├── encoder.cpp        # .city  -> DIMACS CNF   (823 lines: var mapping, G0-G3, coverage)
-├── decoder.cpp        # SAT model -> .metromap (788 lines: model parse, path reconstruction)
-├── compile.sh         # Release / DEBUG build script
-├── Makefile           # `run` and `runn` end-to-end pipelines
-├── run1.sh, run2.sh   # Thin wrappers: encode / decode by basename
-├── testcase_gen.py    # Instance generator (constructive / random / unsat)
-├── format_checker.py  # Independent solution validator
-├── TESTER.py          # Regression harness over a directory of cases
-├── testcases/
-│   ├── solvable/
-│   └── unsolvable/
-├── input.city         # Default instance
-└── Example.png        # Rendered solution
-```
-
-**Reading order:** `encoder.cpp::main` → `read_PROBLEM` → `G0` → `PATH_GENERATOR` →
-`AT_LEAST_ONE_PATH` → `G2` / `G3` → `POPULAR_CELL_COVERAGE`, then `decoder.cpp`.
-
----
-
-## Troubleshooting
-
-| Symptom | Fix |
-|---|---|
-| `minisat: command not found` | `brew install minisat` (macOS) · `sudo apt install minisat` (Linux) |
-| `make run` reports a non-zero exit from minisat | Normal — MiniSat signals UNSAT via exit code |
-| `error: unknown argument '-march=native'` | Compile manually: `g++ -std=c++11 -O3 encoder.cpp -o encoder` |
-| Validation fails | Run `python3 format_checker.py <basename>` for the specific violated constraint |
-| UNSAT on an instance you expect to be solvable | Increase `J`, or check that endpoints are inside the grid and mutually reachable |
-| Encoder is slow / memory-hungry | Expected on large `N·M·K`; try a smaller grid or fewer lines, or build with `DEBUG=0` |
-
----
-
-## Contributing
-
-Contributions are welcome. Good first issues:
-
-- Support solvers other than MiniSat (CaDiCaL, Kissat) behind a `--solver` flag
-- Replace path enumeration with an incremental turn-counting encoding to scale past large `J`
-- Emit SVG/PNG renderings directly from the decoder instead of relying on external tooling
-- Add CI that runs `TESTER.py` over both test directories
-- Report clause and variable counts as a machine-readable summary
-
-```bash
-git checkout -b feat/your-change
-./compile.sh && make run && python3 TESTER.py testcases/solvable
-git commit -m "feat: describe your change"
-```
-
-Keep the encoder C++11 and dependency-free, and mention in your PR if a change alters the clause
-count for existing instances.
-
----
-
-## License
-
-Released for educational use. See `A3.pdf` and `A3-TC Generator_ README.md.pdf` for the original
-problem statement.
+- Solver time grows quickly on large grids and on topologically impossible
+  instances (section 5); the encoding has no planarity reasoning.
+- `solve_cnf.py` parses DIMACS in Python (~3 s per million clauses); a real
+  `minisat` binary avoids that overhead.
+- The decoder's route search inside a line's cells has a step budget; on
+  pathological inputs it returns the best route found so far (still verified).
+- The exhaustive reference solver certifies only small instances; larger
+  UNSAT cases rest on the documented structural arguments.
+- The encoder's parser validates little; malformed `.city` files may crash it
+  (the Python tools validate properly).

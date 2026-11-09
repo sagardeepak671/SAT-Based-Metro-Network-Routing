@@ -1,21 +1,25 @@
-.PHONY: run
+CXX ?= c++
+CXXFLAGS ?= -std=c++11 -O2 -Wall -Wextra
 
-run:
-	./compile.sh
-	./encoder
-	-minisat input.satinput input.satoutput
-	./decoder 
-	python3 format_checker.py input
+.PHONY: all run test clean
+all: encoder decoder
 
+encoder: encoder.cpp
+	$(CXX) $(CXXFLAGS) $< -o $@
 
-runn:
-	python3 testcase_gen.py --N 40 --M 40 --K 30 --J 3 --mode constructive --count 1 --prefix input
-	mv input_000.city input.city
-	./compile.sh
-	./encoder
-	-minisat input.satinput input.satoutput
-	./decoder 
-	python3 format_checker.py input
+decoder: decoder.cpp
+	$(CXX) $(CXXFLAGS) $< -o $@
+
+# The baseline stops at CNF generation.
+run: encoder
+	./run1.sh input
+
+# Generate the regression cases (reproducible, fixed seed) and run
+# encode -> solve -> compare against the expected SAT/UNSAT verdicts.
+test: encoder decoder
+	python3 testcase_gen.py --out tests
+	python3 TESTER.py --tests tests
 
 clean:
 	rm -f encoder decoder input.satinput input.satoutput input.metromap
+	rm -f tests/*.satinput tests/*.satoutput

@@ -162,105 +162,6 @@ void read_PROBLEM(string filename){
     file.close();
 }
 
-void PRINT_BEAUTIFUL(){
-    cout << "Scenario: " << prob.senario << endl;
-    cout << "Grid Size: " << prob.N << "x" << prob.M << endl;
-    cout << "Number of Metro Lines: " << prob.K << endl;
-    cout << "Max Turns per Line: " << prob.J << endl;
-    if(prob.senario == 2){
-        cout << "Number of Popular Cells: " << prob.P << endl;
-    } 
-    int rows = prob.N;
-    int cols = prob.M;
-    vector<vector<string>> grid(rows, vector<string>(cols, "."));
-    // Mark start and end points for each metro line
-    for(size_t k = 0; k < prob.metro_lines.size(); k++){
-        if(prob.metro_lines[k].size() < 4) continue;
-        int x1 = prob.metro_lines[k][0];
-        int y1 = prob.metro_lines[k][1];
-        int x2 = prob.metro_lines[k][2];
-        int y2 = prob.metro_lines[k][3];
-
-        string sLabel = string("S") + to_string(k+1);
-        string eLabel = string("E") + to_string(k+1);
-
-        // mark start
-        if(x1 >= 0 && x1 < rows && y1 >= 0 && y1 < cols){
-            if(grid[x1][y1] == ".") grid[x1][y1] = sLabel;
-            else grid[x1][y1] += "/" + sLabel;
-        }
-
-        // mark end
-        if(x2 >= 0 && x2 < rows && y2 >= 0 && y2 < cols){
-            if(x2 == x1 && y2 == y1){
-                // same cell is already marked; ensure combined label
-                if(grid[x2][y2] == sLabel) grid[x2][y2] = string("SE") + to_string(k+1);
-                else if(grid[x2][y2].find("SE" + to_string(k+1)) == string::npos) grid[x2][y2] += "/" + eLabel;
-            } else {
-                if(grid[x2][y2] == ".") grid[x2][y2] = eLabel;
-                else grid[x2][y2] += "/" + eLabel;
-            }
-        }
-    }
-
-    // Mark popular cells for scenario 2
-    if(prob.senario == 2){
-        for(size_t p = 0; p < prob.popular_cells.size(); p++){
-            if(prob.popular_cells[p].size() < 2) continue;
-            int px = prob.popular_cells[p][0];
-            int py = prob.popular_cells[p][1];
-            if(px >= 0 && px < rows && py >= 0 && py < cols){
-                if(grid[px][py] == ".") grid[px][py] = "P";
-                else {
-                    // avoid duplicate /P if already present
-                    if(grid[px][py].find("/P") == string::npos && grid[px][py] != "P") grid[px][py] += "/P";
-                }
-            }
-        }
-    }
-
-    cout << "\n" << string(50, '=') << endl;
-    cout << "METRO MAP PROBLEM VISUALIZATION" << endl;
-    cout << string(50, '=') << endl;
-
-    // Print metro line details
-    for(size_t k = 0; k < prob.metro_lines.size(); k++){
-        if(prob.metro_lines[k].size() < 4) continue;
-        int x1 = prob.metro_lines[k][0];
-        int y1 = prob.metro_lines[k][1];
-        int x2 = prob.metro_lines[k][2];
-        int y2 = prob.metro_lines[k][3];
-        cout << "Metro Line " << (k+1) << ": (" << x1 << "," << y1 << ") -> (" << x2 << "," << y2 << ")" << endl;
-    }
-
-    if(prob.senario == 2 && !prob.popular_cells.empty()){
-        cout << "\nPopular Cells: ";
-        for(size_t p = 0; p < prob.popular_cells.size(); p++){
-            if(prob.popular_cells[p].size() < 2) continue;
-            cout << "(" << prob.popular_cells[p][0] << "," << prob.popular_cells[p][1] << ")";
-            if(p < prob.popular_cells.size() - 1) cout << ", ";
-        }
-        cout << endl;
-    }
-    cout << "\nGrid Layout:" << endl;
-    // Choose a cell width large enough for labels
-    int cellW = 6;
-    cout << string(4, ' ');
-    for(int j = 0; j < cols; j++){
-        cout << setw(cellW) << j;
-    }
-    cout << endl;
-
-    for(int i = 0; i < rows; i++){
-        cout << setw(3) << i << " ";
-        for(int j = 0; j < cols; j++){
-            cout << setw(cellW) << grid[i][j];
-        }
-        cout << endl;
-    }
-    cout << string(50, '=') << endl;
-}
-
 void add_at_most_one_sequential(const vector<int>& xs) {
   int n = (int)xs.size();
   if (n <= 1) return;
@@ -282,6 +183,16 @@ void add_at_most_one_sequential(const vector<int>& xs) {
 }
 
  
+
+void add_at_most_one(const vector<int>& xs){
+    if(xs.size() <= 6){
+        for(size_t i = 0; i < xs.size(); i++)
+            for(size_t j = i + 1; j < xs.size(); j++)
+                add_clause({-xs[i], -xs[j]});
+    } else {
+        add_at_most_one_sequential(xs);
+    }
+}
 
 void G0(){
     // G0: each cell can be colored by at most one metro line (allows empty cells)
@@ -569,6 +480,22 @@ void AT_LEAST_ONE_PATH(const vector<vector<int>>& paths, int metro_line_k){
             }
             add_clause(clause);
         }
+        // BUG FIX: the loop above only covers cells that occur in some candidate
+        // path of this line. A cell on NO candidate path had no constraint at
+        // all, so its colour variable was free; the popular-cell clause
+        // "(v1 OR ... OR vK)" could then be satisfied by colouring an
+        // unreachable popular cell with a line that never visits it, and the
+        // CNF was SAT for impossible instances. The implication
+        // "coloured k => some chosen path of k contains it" for such a cell has
+        // an empty right-hand side, i.e. the unit clause (-cellVar).
+        for(int x = 0; x < N; x++){
+            for(int y = 0; y < M; y++){
+                int cellVar = var_map[x][y][metro_line_k];
+                if(cell_to_paths.find(cellVar) == cell_to_paths.end()){
+                    add_clause({-cellVar});
+                }
+            }
+        }
     } 
     
     // Scenario 1: At least one pathVar must be true
@@ -658,6 +585,134 @@ void POPULAR_CELL_COVERAGE(){
     }
 }
 
+
+// ============================================================================
+// General-J encoding (segment automaton).  Replaces path enumeration.
+//
+// A route with at most J turns is a chain of at most J+1 straight segments.
+// For every line k, cell c, direction d and segment index t in 0..J:
+//   E[k][c][d][t]  <=>  line k moves from c to its neighbour in direction d
+//                       while on segment t (i.e. after exactly t turns).
+// Local constraints only:
+//   * start: exactly one outgoing edge, on segment 0, no incoming edge;
+//   * end:   exactly one incoming edge, no outgoing edge;
+//   * other cells: coloured k  <=>  one edge arrives; coloured k => one edge
+//     leaves; at most one incoming and one outgoing edge;
+//   * an edge leaving c (d,t) needs an edge arriving at c either straight
+//     (d,t) or perpendicular (d',t-1); an edge arriving (d,t) needs an edge
+//     leaving straight (d,t) or perpendicular (d',t+1).  U-turns are never
+//     allowed.
+// Consequence: the cells coloured k are exactly one simple route from start
+// to end with <= J turns.  (Degree <= 1 rules out branching; a stray path
+// would need a coloured cell without incoming edge; a closed loop has >= 4
+// turns, so the segment index would have to grow around it and still return
+// to its first value -- impossible.)  Size: ~4*N*M*K*(J+1) variables and
+// ~40*N*M*K*(J+1) short clauses: linear in J, independent of path counts.
+// ============================================================================
+static const int DDX[4] = {-1, 1, 0, 0};   // internal axes: x = row, y = column
+static const int DDY[4] = {0, 0, -1, 1};
+vector<int> EDGE;                           // edge variables, 0 = edge does not exist
+int CELLS;
+
+inline int cell_id(int x, int y){ return x * M + y; }
+inline bool in_grid(int x, int y){ return x >= 0 && x < N && y >= 0 && y < M; }
+inline int edge_var(int k, int c, int d, int t){
+    return EDGE[((size_t)((size_t)k * CELLS + c) * 4 + d) * (J + 1) + t];
+}
+// edge arriving at cell (x,y) in direction d on segment t (from the neighbour opposite to d)
+inline int in_edge_var(int k, int x, int y, int d, int t){
+    int px = x - DDX[d], py = y - DDY[d];
+    if(!in_grid(px, py)) return 0;
+    return edge_var(k, cell_id(px, py), d, t);
+}
+inline bool perpendicular(int a, int b){ return (a < 2) != (b < 2); }
+
+void ENCODE_GENERAL_J(){
+    CELLS = N * M;
+    EDGE.assign((size_t)K * CELLS * 4 * (J + 1), 0);
+    for(int k = 0; k < K; k++)
+        for(int x = 0; x < N; x++)
+            for(int y = 0; y < M; y++)
+                for(int d = 0; d < 4; d++)
+                    if(in_grid(x + DDX[d], y + DDY[d]))
+                        for(int t = 0; t <= J; t++)
+                            EDGE[((size_t)((size_t)k * CELLS + cell_id(x, y)) * 4 + d) * (J + 1) + t] = get_new_aux_var();
+
+    for(int k = 0; k < K; k++){
+        int sx = prob.metro_lines[k][0], sy = prob.metro_lines[k][1];
+        int ex = prob.metro_lines[k][2], ey = prob.metro_lines[k][3];
+        for(int x = 0; x < N; x++){
+            for(int y = 0; y < M; y++){
+                int c = cell_id(x, y);
+                int xc = var_map[x][y][k];
+                vector<int> outs, ins;
+                for(int d = 0; d < 4; d++)
+                    for(int t = 0; t <= J; t++){
+                        int o = edge_var(k, c, d, t); if(o) outs.push_back(o);
+                        int i = in_edge_var(k, x, y, d, t); if(i) ins.push_back(i);
+                    }
+                bool is_start = (x == sx && y == sy), is_end = (x == ex && y == ey);
+                if(is_start){
+                    for(int v : ins) add_clause({-v});                       // nothing arrives at the start
+                    vector<int> first;
+                    for(int d = 0; d < 4; d++)
+                        for(int t = 0; t <= J; t++){
+                            int o = edge_var(k, c, d, t);
+                            if(!o) continue;
+                            if(t == 0) first.push_back(o); else add_clause({-o});   // leave on segment 0
+                        }
+                    if(first.empty()) add_clause({});                        // isolated cell: impossible
+                    else add_clause(first);
+                    add_at_most_one(first);
+                    continue;
+                }
+                if(is_end){
+                    for(int v : outs) add_clause({-v});                      // nothing leaves the end
+                    if(ins.empty()) add_clause({});
+                    else add_clause(ins);                                    // exactly one arrival
+                    add_at_most_one(ins);
+                    continue;
+                }
+                // coloured  <=>  some edge arrives ;  coloured  =>  some edge leaves
+                vector<int> cl; cl.push_back(-xc);
+                for(int v : ins) cl.push_back(v);
+                add_clause(cl);
+                for(int v : ins) add_clause({-v, xc});
+                cl.clear(); cl.push_back(-xc);
+                for(int v : outs) cl.push_back(v);
+                add_clause(cl);
+                for(int v : outs) add_clause({-v, xc});
+                add_at_most_one(ins);
+                add_at_most_one(outs);
+                // segment bookkeeping across the cell
+                for(int d = 0; d < 4; d++){
+                    for(int t = 0; t <= J; t++){
+                        int o = edge_var(k, c, d, t);
+                        if(o){   // leaving (d,t)  =>  arrived straight (d,t) or turned from (d',t-1)
+                            cl.clear(); cl.push_back(-o);
+                            int i = in_edge_var(k, x, y, d, t); if(i) cl.push_back(i);
+                            if(t > 0)
+                                for(int dp = 0; dp < 4; dp++)
+                                    if(perpendicular(d, dp)){ int i2 = in_edge_var(k, x, y, dp, t - 1); if(i2) cl.push_back(i2); }
+                            add_clause(cl);
+                        }
+                        int i = in_edge_var(k, x, y, d, t);
+                        if(i){   // arriving (d,t)  =>  leaves straight (d,t) or turns to (d',t+1)
+                            cl.clear(); cl.push_back(-i);
+                            int o2 = edge_var(k, c, d, t); if(o2) cl.push_back(o2);
+                            if(t < J)
+                                for(int dp = 0; dp < 4; dp++)
+                                    if(perpendicular(d, dp)){ int o3 = edge_var(k, c, dp, t + 1); if(o3) cl.push_back(o3); }
+                            add_clause(cl);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Legacy path-enumeration encoding (J <= 3 only); kept for cross-checking via --legacy.
 void SOLVE(){
     // each line can have at most J turns (J>=3)
     // Strategy: enumerate all possible J-turn paths from (x1,y1) to (x2,y2)
@@ -680,85 +735,6 @@ void SOLVE(){
 }
  
 
-void G2(){
-    // G2: Connectivity constraints - if a cell is colored (not start/end), 
-    // at least one neighbor must be colored with the same metro
-    
-    int dx[] = {0, 0, -1, 1};  // L, R, U, D
-    int dy[] = {-1, 1, 0, 0};
-    
-    for(int k = 0; k < K; k++){
-        int sx = prob.metro_lines[k][0];
-        int sy = prob.metro_lines[k][1];
-        int ex = prob.metro_lines[k][2];
-        int ey = prob.metro_lines[k][3];
-        
-        for(int x = 0; x < N; x++){
-            for(int y = 0; y < M; y++){
-                // Skip start and end cells (they can be endpoints)
-                if((x == sx && y == sy) || (x == ex && y == ey)) continue;
-                
-                // If cell (x,y) is colored by k, at least one neighbor must be colored by k
-                // (¬cell(x,y,k) ∨ neighbor1(k) ∨ neighbor2(k) ∨ neighbor3(k) ∨ neighbor4(k))
-                vector<int> clause;
-                clause.push_back(-var_map[x][y][k]);  // ¬cell(x,y,k)
-                
-                for(int d = 0; d < 4; d++){
-                    int nx = x + dx[d];
-                    int ny = y + dy[d];
-                    
-                    if(nx >= 0 && nx < N && ny >= 0 && ny < M){
-                        clause.push_back(var_map[nx][ny][k]);  // neighbor
-                    }
-                }
-                
-                // Only add if there are neighbors (cell not isolated at boundary)
-                if(clause.size() > 1){
-                    add_clause(clause);
-                }
-            }
-        }
-    }
-}
-
-void G3(){
-    // G3: Path continuity - if two cells of same color k are separated by one empty cell,
-    // that middle cell should be colored k (prevents gaps in paths)
-    // Optimized: Only add if middle cell is actually empty (not already colored by start/end)
-    
-    for(int k=0;k<K;k++){
-        int sx = prob.metro_lines[k][0];
-        int sy = prob.metro_lines[k][1];
-        int ex = prob.metro_lines[k][2];
-        int ey = prob.metro_lines[k][3];
-        
-        for(int x=0;x<N;x++){
-            for(int y=0;y<M;y++){
-                
-                // Horizontal gap filling: if (x,y,k) AND (x,y+2,k) then (x,y+1,k)
-                if(y < M-2){
-                    // Skip if middle cell is start/end (already forced to be colored)
-                    if(!((x == sx && y+1 == sy) || (x == ex && y+1 == ey))){
-                        // (x,y,k) ∧ (x,y+2,k) => (x,y+1,k)
-                        // Equivalent to: ¬(x,y,k) ∨ ¬(x,y+2,k) ∨ (x,y+1,k)
-                        add_clause({-var_map[x][y][k], -var_map[x][y+2][k], var_map[x][y+1][k]});
-                    }
-                }
-                
-                // Vertical gap filling: if (x,y,k) AND (x+2,y,k) then (x+1,y,k)
-                if(x < N-2){
-                    // Skip if middle cell is start/end
-                    if(!((x+1 == sx && y == sy) || (x+1 == ex && y == ey))){
-                        // (x,y,k) ∧ (x+2,y,k) => (x+1,y,k)
-                        // Equivalent to: ¬(x,y,k) ∨ ¬(x+2,y,k) ∨ (x+1,y,k)
-                        add_clause({-var_map[x][y][k], -var_map[x+2][y][k], var_map[x+1][y][k]});
-                    }
-                }
-            }
-        }
-    }
-}
-
 int main(int argc, char* argv[]){
     ios_base::sync_with_stdio(false);
     cin.tie(NULL);
@@ -766,7 +742,13 @@ int main(int argc, char* argv[]){
     time_point<high_resolution_clock> start_time = high_resolution_clock::now(); 
     
     // Accept filename from command line argument, default to "input" if not provided
-    string filename = (argc > 1) ? string(argv[1]) : "input";
+    string filename = "input";
+    bool legacy = false;
+    for(int i = 1; i < argc; i++){
+        string a = argv[i];
+        if(a == "--legacy") legacy = true;
+        else filename = a;
+    }
     read_PROBLEM(filename);
     // PRINT_BEAUTIFUL();
     next_aux_var = N*M*K + 1; 
@@ -794,9 +776,12 @@ int main(int argc, char* argv[]){
         }
     }
     G0();  // At most one color per cell
-    // G2();  // DISABLED: Adds too many clauses for large grids (use for small grids only)
-    SOLVE();  
-    // G3();  // Gap filling - efficient ternary clauses
+    if(legacy){
+        if(J > 3){ cerr << "encoder: --legacy supports J <= 3 only" << endl; return 2; }
+        SOLVE();                 // old path enumeration
+    } else {
+        ENCODE_GENERAL_J();      // general J
+    }
     // now adding the popular cells constraints for scenario 2
     if(prob.senario == 2){
         // at least one color for each popular cell

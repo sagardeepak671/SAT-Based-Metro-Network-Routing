@@ -1,20 +1,16 @@
-#!/bin/bash
-
-# run1.sh - Reads test.city and produces test.satinput
-# Usage: ./run1.sh test
-
-if [ $# -eq 0 ]; then
-    echo "Usage: ./run1.sh <filename>"
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ $# -ne 1 ]]; then
+    echo "Usage: $0 <basename without .city>" >&2
+    exit 2
+fi
+if [[ ! -f "$1.city" ]]; then
+    echo "Input not found: $1.city" >&2
     exit 1
 fi
-
-filename=$1
-
-# Check if input file exists
-if [ ! -f "${filename}.city" ]; then
-    echo "Error: ${filename}.city not found"
+script_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
+if [[ ! -x "$script_dir/encoder" ]]; then
+    echo "Build the encoder first with ./compile.sh" >&2
     exit 1
 fi
-
-# Run encoder with filename argument
-./encoder "$filename"
+exec "$script_dir/encoder" "$1"

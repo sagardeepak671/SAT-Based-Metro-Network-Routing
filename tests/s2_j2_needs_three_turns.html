@@ -1,0 +1,52 @@
+<!doctype html><html><head><meta charset="utf-8"><title>s2_j2_needs_three_turns  [NO_WITNESS]</title>
+<style>
+ body{background:#0d0e12;color:#e6e6e6;font-family:sans-serif;margin:20px}
+ h1{font-size:20px;margin:0 0 6px} .sub{color:#9aa0ad;font-size:13px;margin-bottom:14px}
+ .wrap{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+ table{border-collapse:collapse;font-size:14px} td,th{padding:5px 10px;border-bottom:1px solid #2b2f3a;text-align:left}
+ .mono{font-family:monospace} .sw{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:6px;vertical-align:-2px}
+ .badge{display:inline-block;padding:4px 10px;border-radius:4px;font-weight:bold;background:#455a64;color:#fff}
+ .warn{color:#ff8a80} ul{margin:6px 0 0 18px} li{margin:3px 0;color:#ffab91}
+ pre{background:#1a1d25;padding:10px;border-radius:4px;font-size:12px;overflow:auto;max-width:420px}
+ .leg{font-size:13px;color:#9aa0ad;margin-top:8px}
+</style></head><body>
+<h1>s2_j2_needs_three_turns  [NO_WITNESS]</h1>
+<div class="sub">scenario 2 &middot; grid 3&times;3 (x right, y down, (0,0) top-left) &middot; K=1 lines &middot; J=2 turns max &middot; popular cells: (0,1)</div>
+<div class="wrap">
+ <div><svg xmlns="http://www.w3.org/2000/svg" width="196" height="196" viewBox="0 0 196 196">
+<rect x="0" y="0" width="196" height="196" fill="#14161c"/>
+<rect x="30" y="30" width="52" height="52" fill="#1d2029" stroke="#3b3f4d" stroke-width="1"/>
+<rect x="82" y="30" width="52" height="52" fill="#1d2029" stroke="#3b3f4d" stroke-width="1"/>
+<rect x="134" y="30" width="52" height="52" fill="#1d2029" stroke="#3b3f4d" stroke-width="1"/>
+<rect x="30" y="82" width="52" height="52" fill="#3a3410" stroke="#3b3f4d" stroke-width="1"/>
+<rect x="82" y="82" width="52" height="52" fill="#1d2029" stroke="#3b3f4d" stroke-width="1"/>
+<rect x="134" y="82" width="52" height="52" fill="#1d2029" stroke="#3b3f4d" stroke-width="1"/>
+<rect x="30" y="134" width="52" height="52" fill="#1d2029" stroke="#3b3f4d" stroke-width="1"/>
+<rect x="82" y="134" width="52" height="52" fill="#1d2029" stroke="#3b3f4d" stroke-width="1"/>
+<rect x="134" y="134" width="52" height="52" fill="#1d2029" stroke="#3b3f4d" stroke-width="1"/>
+<text x="56.0" y="22" fill="#8a8f9c" font-size="12" text-anchor="middle" font-family="monospace">0</text>
+<text x="108.0" y="22" fill="#8a8f9c" font-size="12" text-anchor="middle" font-family="monospace">1</text>
+<text x="160.0" y="22" fill="#8a8f9c" font-size="12" text-anchor="middle" font-family="monospace">2</text>
+<text x="22" y="60.0" fill="#8a8f9c" font-size="12" text-anchor="end" font-family="monospace">0</text>
+<text x="22" y="112.0" fill="#8a8f9c" font-size="12" text-anchor="end" font-family="monospace">1</text>
+<text x="22" y="164.0" fill="#8a8f9c" font-size="12" text-anchor="end" font-family="monospace">2</text>
+<circle cx="108.0" cy="108.0" r="17" fill="#ff2a2a" stroke="#0d0e12" stroke-width="2"/>
+<text x="108.0" y="113.0" fill="#0d0e12" font-size="13" font-weight="bold" text-anchor="middle" font-family="sans-serif">S1</text>
+<circle cx="160.0" cy="108.0" r="17" fill="#ff2a2a" stroke="#0d0e12" stroke-width="2"/>
+<text x="160.0" y="113.0" fill="#0d0e12" font-size="13" font-weight="bold" text-anchor="middle" font-family="sans-serif">E1</text>
+<text x="56.0" y="114.0" fill="#ffffff" font-size="18" text-anchor="middle" style="paint-order:stroke" stroke="#0d0e12" stroke-width="3">&#9733;<title>popular cell (0,1)</title></text>
+</svg>
+  <div class="leg">&#9679; S/E = start/end &middot; &#9733; popular cell (red dashed ring = not on any route) &middot; red box = cell used by two lines &middot; &#x2717; = route stops here (invalid move)</div>
+ </div>
+ <div>
+  <p><span class="badge">verifier: NO WITNESS</span> &nbsp; the .metromap is the single &#x27;0&#x27; row (UNSAT claim): no routes to verify; this is not proof that the instance is unsolvable</p>
+  <ul></ul>
+  <table><tr><th>line</th><th>start &rarr; end</th><th>decoded moves</th><th>turns / J</th><th>cells</th><th></th></tr><tr><td><span class="sw" style="background:#ff2a2a"></span>1</td><td>(1,1) &rarr; (2,1)</td><td class="mono">&mdash;</td><td>&mdash; / 2</td><td>&mdash;</td><td class="warn">no route row</td></tr></table>
+  <div class="wrap" style="margin-top:14px"><div><b>.city</b><pre>2
+3 3 1 2 1
+1 1 2 1
+0 1
+</pre></div><div><b>.metromap</b><pre>0
+</pre></div></div>
+ </div>
+</div></body></html>
